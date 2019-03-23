@@ -1,0 +1,77 @@
+---
+title: "HW5 EPI"
+author: "Anthony O'Brien"
+date: "March 3, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning=FALSE, include=FALSE}
+# Load packages to read in SAS file and perform analysis
+library(sas7bdat)
+library(dplyr)
+library(multcomp)   # estimation of linear contrasts from GLMs
+library(geepack)    # generalized estimating equations
+```
+
+```{r}
+# Read in SAS file
+df.original <- read.sas7bdat("C:/Users/Me/Dropbox/4. HSPH MPH 45.5 QM/6. Spring 1/EPI289/HW/HW1//nhefs.sas7bdat")
+```
+
+#Question 1
+
+```{r}
+# Estimating IP weights to adjust for selection bias due to censoring
+df.original$cens <- as.numeric(is.na(df.original$wt82_71))  
+df.original$cens <- as.factor(df.original$cens)
+# Estimation of denominator of ip weights for not being censored
+denom.cens <- glm(cens ~                       # YOU CAN INCLUDE cens==0
+                    as.factor(qsmk)+
+                    as.factor(sex) + 
+                    as.factor(race) + 
+                    age + 
+                    I(age^2),
+                  family = binomial(link="logit"), 
+                 data = df.original)
+summary(denom.cens)
+denom.p.cens <- predict(denom.cens, df.original, type = "response")
+# Estimation of non-stabilized weight for not being censored
+df.original$w.c <- ifelse(df.original$cens == 0, 
+                      ((1)/(1-denom.p.cens)),
+                      1)  
+# define the (proposed) instrumental variable
+df.original$highprice = ifelse(df.original$price82 >= 1.5, yes = 1, no = 0)
+
+# Estimating the average causal using the standard IV estimator
+# via two-stage least squares regression
+
+#First drop the rows where highprice is NA
+df.original<-df.original %>% filter(!is.na(highprice))
+
+#install.packages("sem")
+library(sem) 
+model1 <- tsls(wt82_71 ~ qsmk, 
+               ~ highprice, 
+               data = df.original, 
+               weights=w.c)
+summary(model1)
+confint(model1)  # note the wide confidence intervals
+
+# Compliers given that the assignment is highprice and the compliance is qsmk
+(table(df.original$highprice, df.original$qsmk))
+
+```
+Compliance table
+
+       did not quit    quit
+  no     34             9
+  yes   1102           392
+  
+True positive : (1-yes high price, 1- quit smoking) : 392
+True negative : (0-no high price, 0- didnt quit smoking ) : 34
+
+  

@@ -1,0 +1,332 @@
+---
+title: "Untitled"
+author: "Anthony O'Brien"
+date: "February 15, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning=FALSE, include=FALSE}
+# Load packages to read in SAS file and perform analysis
+library(sas7bdat)
+library(dplyr)
+```
+
+```{r}
+# Read in SAS file
+df.original <- read.sas7bdat("C:/Users/Me/Dropbox/4. HSPH MPH 45.5 QM/6. Spring 1/EPI289/HW/HW1//nhefs.sas7bdat")
+```
+
+```{r}
+# Wrangle data of interest for exercise
+df.hw<-df.original[c("seqn","wt82_71","qsmk","sex","race","age")]
+# Filter out missing Y values
+df.hw<-df.hw %>% filter(!is.na(wt82_71))
+```
+
+```{r}
+#Q1
+# IP weight
+fit<- glm(qsmk ~
+            as.factor(sex)+
+            as.factor(race)+
+            poly(age, 2, raw=TRUE),
+          data=df.hw,
+          family=binomial(link="logit"))
+
+p.qsmk.obs <- ifelse(df.hw$qsmk == 0, 
+                     1 - predict(fit, df.hw,type = "response"),
+                     predict(fit, df.hw,type = "response"))
+
+df.hw$w <- 1/p.qsmk.obs
+mean(df.hw$w)
+
+#
+library(geepack)
+gee.obj <- geeglm(wt82_71~qsmk, 
+                  data = df.hw, 
+                  std.err = 'san.se',
+                  weights = w, 
+                  id=seqn, 
+                  corstr="independence")
+summary(gee.obj)
+#
+
+
+library(multcomp)
+
+library(BSagri)
+comp<-glht(gee.obj)
+CIadj<-CIGLM(comp,method="Adj")
+CIadj # Confidence interval is slightly off
+
+# Estimates from a GLM with cluster option
+glm.obj <- glm(wt82_71 ~ qsmk + cluster(seqn), data = df.hw, weights = w)
+summary(glm.obj)
+comp<-glht(glm.obj)
+CIadj<-CIGLM(comp,method="Adj")
+CIadj
+vcov(glm.obj)
+
+# install.packages("sandwich")
+require(sandwich)
+beta <- coef(glm.obj)
+SE <-sqrt(diag(vcovHC(glm.obj, type="HC0"))) # robust standard errors
+lcl <- beta-1.96*SE 
+ucl <- beta+1.96*SE
+round(cbind(beta, lcl, ucl),1)[2,]
+```
+
+
+$Inverse\ probability\ weight\ model: Pr[A=1|L=l]= \beta_0+\beta_ll$
+
+$Average\ causal\ effect\  E[Y|A]=\beta_0+\beta_1A$
+
+
+
+```{r}
+# Q2
+require(descr)
+crosstab(df.hw$sex, df.hw$qsmk, plot = F, format = "SAS")
+crosstab(df.hw$sex, df.hw$qsmk, weight = df.hw$w, plot = F, format = "SAS")
+
+#race-0 white   sex-1 female
+age.restr <- df.hw$age[df.hw$race == 0 & df.hw$sex == 1]
+qsmk.restr <- df.hw$qsmk[df.hw$race == 0 & df.hw$sex == 1]
+CrossTable(age.restr, qsmk.restr, expected = F, format = "SAS")
+
+#race-0 white   sex-0 male
+age.restr2 <- df.hw$age[df.hw$race == 0 & df.hw$sex == 0]
+qsmk.restr2 <- df.hw$qsmk[df.hw$race == 0 & df.hw$sex == 0]
+CrossTable(age.restr2, qsmk.restr2, expected = F, format = "SAS")
+
+#race-1 black/other   sex-1 female
+age.restr4 <- df.hw$age[df.hw$race == 1 & df.hw$sex == 0]
+qsmk.restr4 <- df.hw$qsmk[df.hw$race == 1 & df.hw$sex == 0]
+CrossTable(age.restr4, qsmk.restr4, expected = F, format = "SAS")
+
+#race-1 black/other   sex-0 male
+age.restr4 <- df.hw$age[df.hw$race == 1 & df.hw$sex == 0]
+qsmk.restr4 <- df.hw$qsmk[df.hw$race == 1 & df.hw$sex == 0]
+CrossTable(age.restr4, qsmk.restr4, expected = F, format = "SAS")
+
+#All strata of demographics combined
+CrossTable(df.hw$age, df.hw$qsmk, expected = F, format = "SAS")
+```
+
+```{r}
+#Q2.3
+# duplicate data to asnwer question
+df.hw2<-df.hw %>% filter(!is.na(wt82_71))
+# create flags to remove missing groups 
+df.hw2<-df.hw2 %>% mutate(flag= ifelse(age %in% c(66,67,71,74) & race==0 & sex==1, 1,0), #race-0 white   sex-1 female
+                          flag= ifelse(age %in% c(71,74) & race==0 & sex==0, 1,0), #race-0 white   sex-0 male
+                          flag= ifelse(age %in% c(25,28,29,30, 
+                                                  32,33,36,38, 
+                                                  39,42,43,44, 
+                                                  46,47,50,51, 
+                                                  56,57,59,61, 
+                                                  62,65,68) & race==1 & sex==1, 1,0), #race-1 black/other   sex-1 female
+                          flag= ifelse(age %in% c(25,28,29,30, 
+                                                  32,33,36,38, 
+                                                  39,42,43,44, 
+                                                  46,47,50,56, 
+                                                  57,59,61,62,65) & race==1 & sex==0, 1,0)) #race-1 black/other   sex-0 male 
+
+# filter out groups
+df.hw2<-df.hw2 %>% filter(flag!=1)
+
+#Repeat previous steps from quetion 1
+
+# IP weight
+fit<- glm(qsmk ~
+            as.factor(sex)+
+            as.factor(race)+
+            poly(age, 2, raw=TRUE),
+          data=df.hw2,
+          family=binomial(link="logit"))
+
+p.qsmk.obs <- ifelse(df.hw2$qsmk == 0, 
+                     1 - predict(fit, df.hw2,type = "response"),
+                     predict(fit, df.hw2,type = "response"))
+
+df.hw2$w <- 1/p.qsmk.obs
+mean(df.hw2$w)
+
+#
+library(geepack)
+gee.obj <- geeglm(wt82_71~qsmk, 
+                  data = df.hw2, 
+                  std.err = 'san.se',
+                  weights = w, 
+                  id=seqn, 
+                  corstr="independence")
+summary(gee.obj)
+#
+
+
+library(multcomp)
+
+library(BSagri)
+comp<-glht(gee.obj)
+CIadj<-CIGLM(comp,method="Adj")
+CIadj # Confidence interval is slightly off
+
+# Estimates from a GLM with cluster option
+glm.obj <- glm(wt82_71 ~ qsmk + cluster(seqn), data = df.hw2, weights = w)
+summary(glm.obj)
+comp<-glht(glm.obj)
+CIadj<-CIGLM(comp,method="Adj")
+CIadj
+vcov(glm.obj)
+
+# install.packages("sandwich")
+require(sandwich)
+beta <- coef(glm.obj)
+SE <-sqrt(diag(vcovHC(glm.obj, type="HC0"))) # robust standard errors
+lcl <- beta-1.96*SE 
+ucl <- beta+1.96*SE
+round(cbind(beta, lcl, ucl),1)[2,]
+```
+
+
+
+```{r}
+# Q3
+# Wrangle data of interest for exercise
+df.hw3<-df.original[c("seqn","death","qsmk","sex","race","age")]
+# Filter out missing Y values
+df.hw3<-df.hw3 %>% filter(!is.na(death))
+
+# estimation of denominator of ip weights (stabilized)
+denom.fit <-glm(qsmk ~
+            as.factor(sex)+
+            as.factor(race)+
+            poly(age, 2, raw=TRUE),
+          data=df.hw3,
+          family=binomial(link="logit"))
+summary(denom.fit)
+
+denom.p <- predict(denom.fit, df.hw3,type = "response")
+
+# estimation of numerator of ip weights
+numer.fit <- glm(qsmk~1, family = binomial(), data = df.hw3)
+summary(numer.fit)
+numer.p <- predict(numer.fit, df.hw3, type = "response")
+
+df.hw3$sw <- ifelse(df.hw3$qsmk == 0, ((1-numer.p)/(1-denom.p)),
+                    (numer.p/denom.p))
+
+summary(df.hw3$sw)
+
+# fiting the model 
+glm.obj <- glm(death~ qsmk + cluster(seqn), data = df.hw3, weights = sw, family=binomial(link="logit"))
+summary(glm.obj)
+comp<-glht(glm.obj)
+CIadj<-CIGLM(comp,method="Adj")
+CIadj
+
+beta <- coef(glm.obj)
+SE <-sqrt(diag(vcovHC(glm.obj, type="HC0"))) # robust standard errors
+lcl <- beta-1.96*SE 
+ucl <- beta+1.96*SE
+round(cbind(beta, lcl, ucl),1)[2,]
+
+# predicting the response probabilities 
+df.hw3$meanY <- predict(glm.obj, df.hw3, type = "response")
+
+#Pr[Da=1=1] ??? Pr[Da=0=1]
+mean(df.hw3$meanY[df.hw3$qsmk==1])-mean(df.hw3$meanY[df.hw3$qsmk==0])
+
+#Pr[Da=1=1]/Pr[Da=0=1]
+mean(df.hw3$meanY[df.hw3$qsmk==1])/mean(df.hw3$meanY[df.hw3$qsmk==0])
+
+#Odds ratio (Pr[Da=1=1]/ Pr[Da=1=0]) / (Pr[Da=0=1]/ Pr[Da=0=0]) we get from the exponential of the model coefficient
+exp(-6.44e-02)
+
+
+```
+$Inverse\ probability\ weight\ model : Pr[A=1|L=l]= \beta_0+\beta_ll$
+
+$Average\ causal\ effect\  Pr[Y|A]=\beta_0+\beta_1A$
+
+
+```{r}
+B <- 1000 # 1000 bootstraps
+N <- 1629 #replicate the size of a table
+start.time <- Sys.time()
+rd.matrix<- replicate(B,{
+  df.boot<-sample_n(df.hw3,N,replace=TRUE)
+  denom.boot<-glm(qsmk ~
+            as.factor(sex)+
+            as.factor(race)+
+            poly(age, 2, raw=TRUE),
+          data=df.boot,
+          family=binomial(link="logit"))
+  numer.boot<-glm(qsmk~1,family=binomial(link="logit"),data=df.boot)
+  denomboot.p <- predict(denom.boot, df.boot,type = "response")
+  numerboot.p <- predict(numer.boot, df.boot, type = "response")
+  df.boot$sw <- ifelse(df.boot$qsmk == 0, ((1-numerboot.p)/(1-denomboot.p)),(numerboot.p/denomboot.p))
+  glmboot.obj<-glm(death~qsmk+cluster(seqn),data =df.boot,weights= sw, family=binomial(link="logit"))
+  df.boot$meanY <- predict(glmboot.obj, df.boot, type = "response")
+  df.boot2<-df.boot[c("qsmk","meanY")]
+  risk.dif<-mean(df.boot2$meanY[df.boot2$qsmk==1])-mean(df.boot2$meanY[df.boot2$qsmk==0])
+  return(risk.dif)
+})
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+t.test(rd.matrix)
+
+
+rr.matrix<- replicate(B,{
+  df.boot<-sample_n(df.hw3,N,replace=TRUE)
+  denom.boot<-glm(qsmk ~
+            as.factor(sex)+
+            as.factor(race)+
+            poly(age, 2, raw=TRUE),
+          data=df.boot,
+          family=binomial(link="logit"))
+  numer.boot<-glm(qsmk~1,family=binomial(link="logit"),data=df.boot)
+  denomboot.p <- predict(denom.boot, df.boot,type = "response")
+  numerboot.p <- predict(numer.boot, df.boot, type = "response")
+  df.boot$sw <- ifelse(df.boot$qsmk == 0, ((1-numerboot.p)/(1-denomboot.p)),(numerboot.p/denomboot.p))
+  glmboot.obj<-glm(death~qsmk+cluster(seqn),data =df.boot,weights= sw, family=binomial(link="logit"))
+  df.boot$meanY <- predict(glmboot.obj, df.boot, type = "response")
+  df.boot2<-df.boot[c("qsmk","meanY")]
+  risk.dif<-mean(df.boot2$meanY[df.boot2$qsmk==1])/mean(df.boot2$meanY[df.boot2$qsmk==0])
+  return(risk.dif)
+})
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+t.test(rr.matrix)
+
+or.matrix<- replicate(B,{
+  df.boot<-sample_n(df.hw3,N,replace=TRUE)
+  denom.boot<-glm(qsmk ~
+            as.factor(sex)+
+            as.factor(race)+
+            poly(age, 2, raw=TRUE),
+          data=df.boot,
+          family=binomial(link="logit"))
+  numer.boot<-glm(qsmk~1,family=binomial(link="logit"),data=df.boot)
+  denomboot.p <- predict(denom.boot, df.boot,type = "response")
+  numerboot.p <- predict(numer.boot, df.boot, type = "response")
+  df.boot$sw <- ifelse(df.boot$qsmk == 0, ((1-numerboot.p)/(1-denomboot.p)),(numerboot.p/denomboot.p))
+  glmboot.obj<-glm(death~qsmk+cluster(seqn),data =df.boot,weights= sw, family=binomial(link="logit"))
+  lor<-glmboot.obj$coefficients[2]
+  or<-exp(lor)
+  return(or)
+})
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+t.test(or.matrix)
+
+```

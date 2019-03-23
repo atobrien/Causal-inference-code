@@ -1,0 +1,111 @@
+---
+title: "EPI Homework 1"
+author: "Anthony O'Brien"
+date: "February 2, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning=FALSE, include=FALSE}
+# Load packages to read in SAS file and perform analysis
+library(sas7bdat)
+library(dplyr)
+```
+
+```{r}
+# Read in SAS file
+df <- read.sas7bdat("C:/Users/Me/Dropbox/4. HSPH MPH 45.5 QM/6. Spring 1/EPI289/HW/HW1/hmwk1.sas7bdat")
+```
+
+## EPI Homework 1
+
+```{r}
+ fit <- glm(Death~SMK,data=df,family=binomial())
+```
+
+```{r}
+summary(fit)
+```
+
+## EPI Homework 1.2
+
+```{r}
+ fit <- glm(Death~SMK+DRINK+(DRINK:SMK),data=df,family=binomial())
+```
+
+```{r}
+summary(fit)
+```
+
+## EPI Homework 1.3
+
+```{r}
+ fit <- glm(Death~SMK+OVERWT,data=df,family=binomial())
+```
+
+```{r}
+summary(fit)
+```
+
+# PART 2
+
+```{r}
+# Read in SAS file
+p2 <- read.sas7bdat("C:/Users/Me/Dropbox/4. HSPH MPH 45.5 QM/6. Spring 1/EPI289/HW/HW1//nhefs.sas7bdat")
+```
+
+```{r}
+#Build model
+fit <- glm(death~
+             qsmk+
+             sex+
+             race+
+             age,
+           data=p2,
+           family=binomial())
+```
+
+```{r}
+#Print summary
+summary(fit)
+```
+
+```{r}
+require(MASS)
+exp(confint(fit))
+```
+
+
+```{r}
+#Build model
+fit <- glm(death~
+             qsmk+
+             sex+
+             race+
+             age+
+             income+
+             marital,
+           data=p2,
+           family=binomial())
+```
+
+```{r}
+#Print summary
+summary(fit)
+```
+
+```{r}
+exp(confint(fit))
+```
+
+```{r}
+# Analysis restricted to N=1566 
+# with non-missing values in the following covariates
+
+
+
+```
+

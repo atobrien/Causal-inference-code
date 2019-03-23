@@ -1,0 +1,361 @@
+---
+title: "epihw4"
+author: "Anthony O'Brien"
+date: "February 22, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# HW 4 EPI
+
+## Question 1
+
+```{r, warning=FALSE, include=FALSE}
+# Load packages to read in SAS file and perform analysis
+library(sas7bdat)
+library(dplyr)
+```
+
+```{r}
+# Read in SAS file
+df.original <- read.sas7bdat("C:/Users/Me/Dropbox/4. HSPH MPH 45.5 QM/6. Spring 1/EPI289/HW/HW1//nhefs.sas7bdat")
+```
+
+```{r}
+# Question 1
+# Estimating stabilized IP weights
+# Estimation of denominator of stabilized ip weights
+denom.fit <- glm(qsmk ~ 
+                   as.factor(sex) + 
+                   as.factor(race) + 
+                   as.factor(exercise) + 
+                   as.factor(marital) + 
+                   as.factor(tumor) +
+                   age + 
+                   I(age^2) + 
+                   smokeyrs + 
+                   I(smokeyrs^2),
+                 family = binomial(link="logit"), 
+                 data = df.original)
+denom.p <- predict(denom.fit, df.original,type = "response")
+
+# Estimation of numerator of stabilized ip weights
+numer.fit <- glm(qsmk~1, 
+                 family = binomial(link="logit"), 
+                 data = df.original)
+numer.p <- predict(numer.fit, df.original, type = "response")
+
+# Compute stabilized weights
+df.original$sw <- ifelse(df.original$qsmk == 0, 
+                         ((1-numer.p)/(1-denom.p)),
+                         (numer.p/denom.p))
+# Sanity check
+summary(df.original$sw)
+
+# Estimating the parameters of a marginal structural logistic model
+library(multcomp)
+glm.obj <- glm(death ~ 
+                 qsmk + 
+                 cluster(seqn), 
+               data = df.original, 
+               weights = sw, 
+               family = binomial(link="logit"))
+summary(glm.obj)
+comp<-glht(glm.obj)
+
+#c.
+library(BSagri)
+CIadj<-CIGLM(comp,method="Adj")
+UnlogCI(CIadj)
+vcov(glm.obj)
+
+require(sandwich)
+beta <- coef(glm.obj)
+SE <-sqrt(diag(vcovHC(glm.obj, type="HC0"))) # robust standard errors
+lcl <- beta-1.96*SE 
+ucl <- beta+1.96*SE
+round(exp(cbind(beta, lcl, ucl)),1)[2,]
+
+#b.
+# predicting the response probabilities 
+df.original$meanY <- predict(glm.obj, df.original, type = "response")
+
+#Pr[Da=1=1] - Pr[Da=0=1]
+mean(df.original$meanY[df.original$qsmk==1])-mean(df.original$meanY[df.original$qsmk==0])
+
+#Pr[Da=1=1]/Pr[Da=0=1]
+mean(df.original$meanY[df.original$qsmk==1])/mean(df.original$meanY[df.original$qsmk==0])
+
+#Odds ratio (Pr[Da=1=1]/ Pr[Da=1=0]) / (Pr[Da=0=1]/ Pr[Da=0=0]) we get from the exponential of the model coefficient
+exp(glm.obj$coefficient[2])
+summary()
+```
+
+## Extra credit part 1
+```{r}
+B <- 500 # # bootstraps
+N <- 1629 #replicate the size of a table
+start.time <- Sys.time()
+rd.matrix<- replicate(B,{
+  df.boot<-sample_n(df.original,N,replace=TRUE)
+  denom.boot<-glm(qsmk ~ 
+                   as.factor(sex) + 
+                   as.factor(race) + 
+                   as.factor(exercise) + 
+                   as.factor(marital) + 
+                   as.factor(tumor) +
+                   age + 
+                   I(age^2) + 
+                   smokeyrs + 
+                   I(smokeyrs^2),
+                  data=df.boot,
+          family=binomial(link="logit"))
+  numer.boot<-glm(qsmk~1,family=binomial(link="logit"),data=df.boot)
+  denomboot.p <- predict(denom.boot, df.boot,type = "response")
+  numerboot.p <- predict(numer.boot, df.boot, type = "response")
+  df.boot$sw <- ifelse(df.boot$qsmk == 0, ((1-numerboot.p)/(1-denomboot.p)),(numerboot.p/denomboot.p))
+  glmboot.obj<-glm(death~qsmk+cluster(seqn),data =df.boot,weights= sw, family=binomial(link="logit"))
+  df.boot$meanY <- predict(glmboot.obj, df.boot, type = "response")
+  df.boot2<-df.boot[c("qsmk","meanY")]
+  risk.dif<-mean(df.boot2$meanY[df.boot2$qsmk==1])-mean(df.boot2$meanY[df.boot2$qsmk==0])
+  return(risk.dif)
+})
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+t.test(rd.matrix)
+```
+
+```{r}
+B <- 500 # # bootstraps
+N <- 1629 #replicate the size of a table
+start.time <- Sys.time()
+rr.matrix<- replicate(B,{
+  df.boot<-sample_n(df.original,N,replace=TRUE)
+  denom.boot<-glm(qsmk ~ 
+                   as.factor(sex) + 
+                   as.factor(race) + 
+                   as.factor(exercise) + 
+                   as.factor(marital) + 
+                   as.factor(tumor) +
+                   age + 
+                   I(age^2) + 
+                   smokeyrs + 
+                   I(smokeyrs^2),
+                  data=df.boot,
+          family=binomial(link="logit"))
+  numer.boot<-glm(qsmk~1,family=binomial(link="logit"),data=df.boot)
+  denomboot.p <- predict(denom.boot, df.boot,type = "response")
+  numerboot.p <- predict(numer.boot, df.boot, type = "response")
+  df.boot$sw <- ifelse(df.boot$qsmk == 0, ((1-numerboot.p)/(1-denomboot.p)),(numerboot.p/denomboot.p))
+  glmboot.obj<-glm(death~qsmk+cluster(seqn),data =df.boot,weights= sw, family=binomial(link="logit"))
+  df.boot$meanY <- predict(glmboot.obj, df.boot, type = "response")
+  df.boot2<-df.boot[c("qsmk","meanY")]
+  risk.rr<-mean(df.boot2$meanY[df.boot2$qsmk==1])/mean(df.boot2$meanY[df.boot2$qsmk==0])
+  return(risk.rr)
+})
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+t.test(rr.matrix)
+```
+
+```{r}
+B <- 500 # # bootstraps
+N <- 1629 #replicate the size of a table
+start.time <- Sys.time()
+or.matrix<- replicate(B,{
+  df.boot<-sample_n(df.original,N,replace=TRUE)
+  denom.boot<-glm(qsmk ~ 
+                   as.factor(sex) + 
+                   as.factor(race) + 
+                   as.factor(exercise) + 
+                   as.factor(marital) + 
+                   as.factor(tumor) +
+                   age + 
+                   I(age^2) + 
+                   smokeyrs + 
+                   I(smokeyrs^2),
+                  data=df.boot,
+          family=binomial(link="logit"))
+  numer.boot<-glm(qsmk~1,family=binomial(link="logit"),data=df.boot)
+  denomboot.p <- predict(denom.boot, df.boot,type = "response")
+  numerboot.p <- predict(numer.boot, df.boot, type = "response")
+  df.boot$sw <- ifelse(df.boot$qsmk == 0, ((1-numerboot.p)/(1-denomboot.p)),(numerboot.p/denomboot.p))
+  glmboot.obj<-glm(death~qsmk+cluster(seqn),data =df.boot,weights= sw, family=binomial(link="logit"))
+  lor<-glmboot.obj$coefficients[2]
+  or<-exp(lor)
+  return(or)
+})
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+t.test(or.matrix)
+```
+
+## Question 2
+
+```{r}
+# Estimating IP weights to adjust for selection bias due to censoring
+df.original$cens <- as.numeric(is.na(df.original$wt82_71))  
+df.original$cens <- as.factor(df.original$cens)
+# Estimation of denominator of ip weights for not being censored
+denom.cens <- glm(cens ~                       # YOU CAN INCLUDE cens==0
+                    as.factor(qsmk)+
+                    as.factor(sex) + 
+                    as.factor(race) + 
+                    age + 
+                    I(age^2) +
+                    as.factor(active) +
+                    as.factor(education) +
+                    as.factor(otherpain) +
+                    as.factor(marital) +
+                    as.factor(alcoholfreq) +
+                    income +
+                    I(income^2),
+                  family = binomial(link="logit"), 
+                 data = df.original)
+summary(denom.cens)
+denom.p.cens <- predict(denom.cens, df.original, type = "response")
+
+# Estimation of numerator of ip weights for not being censored
+numer.cens <- glm(cens~as.factor(qsmk), 
+                  family = binomial(link="logit"), 
+                  data = df.original)
+summary(numer.cens)
+numer.p.cens <- predict(numer.cens, df.original, type = "response")
+
+# Estimation of stabilized weight for not being censored
+df.original$sw.c <- ifelse(df.original$cens == 0, 
+                      ((1-numer.p.cens)/(1-denom.p.cens)),
+                      1)  
+
+#______________________________________________________________________________#
+# Estimation of Stabilized weight (sw) for joint distribution of sw.t & sw.c
+df.original$sw.q2 <- df.original$sw * df.original$sw.c
+summary(df.original$sw.q2)
+sd(df.original$sw.q2)
+#______________________________________________________________________________#
+
+# obtaining final estimates
+glm.obj <- glm(wt82_71~
+                 as.factor(qsmk) + 
+                 cluster(seqn), 
+               data = df.original, 
+               weights = sw.q2)
+summary(glm.obj)
+comp<-glht(glm.obj)
+CIadj<-CIGLM(comp,method="Adj")
+CIadj
+vcov(glm.obj)
+
+beta <- coef(glm.obj)
+SE <-sqrt(diag(vcovHC(glm.obj, type="HC0"))) # robust standard errors
+lcl <- beta-1.96*SE 
+ucl <- beta+1.96*SE
+p.value <- 2*(1-pnorm(abs(beta/SE)))
+round(cbind(beta, SE, lcl, ucl, p.value),1)[2,]
+```
+
+## Question 3
+
+```{r}
+# obtaining  estimates if there was no censoring
+glm.obj.q3b <- glm(wt82_71~
+                 as.factor(qsmk) + 
+                 cluster(seqn), 
+               data = df.original, 
+               weights = sw.c)
+df.original$wtloss.p<-predict(glm.obj.q3b, df.original, type="response")
+
+# Nonparametric standardization (with models)
+# create table 1 with indicator
+df.original$interv <- rep(-1, nrow(df.original))
+
+#create table 2 for untreated and label outcome as NA
+df.untreat <- df.original
+df.untreat$interv <- 0
+df.untreat$qsmk<- 0
+df.untreat$wt82_71 <- rep(NA, nrow(df.untreat))
+df.untreat$wtloss.p <- rep(NA, nrow(df.untreat))
+
+#create table 3 for untreated and label outcome as NA
+df.treat <- df.original
+df.treat$interv <- 1
+df.treat$qsmk<- 1
+df.treat$wtloss.p <- rep(NA, nrow(df.treat))
+
+# create a dataset with 3 copies of each subject
+df.q3<- as.data.frame(rbind(df.original, df.untreat, df.treat))
+
+# estimate parametric model  
+# HERE I SHOULD HAVE INCLUDED THE COVARIATES FOR THE CENSORED DATA
+glm.fit.q3<-glm(wtloss.p~
+                  as.factor(qsmk)+
+                  as.factor(sex) + 
+                  as.factor(race) + 
+                  as.factor(exercise) + 
+                  as.factor(marital) + 
+                  as.factor(tumor) +
+                  age + 
+                  I(age^2) + 
+                  smokeyrs + 
+                  I(smokeyrs^2),
+                data=df.q3)
+summary(glm.fit.q3)
+
+# predict outcome Y in tables 2 and 3 for outcome
+df.q3$meanY <- predict(glm.fit.q3, df.q3, type = "response")
+
+# get the means of the tables
+with(df.q3, tapply(meanY, list(interv), mean))
+
+```
+
+
+```{r}
+B <- 500 # # bootstraps
+N <- 1629 #replicate the size of a table
+start.time <- Sys.time() 
+mean_matrix<-replicate(B,{
+  tab2<-sample_n(df.untreat,N,replace=TRUE) #create table 2
+  tab3<-sample_n(df.treat,N,replace=TRUE) #create table 3
+  tab1<-as.data.frame(rbind(df.original, tab2, tab3)) #fuse tables
+  glm.fit.q3b<-glm(wtloss.p~
+                  as.factor(qsmk)+
+                  as.factor(sex) + 
+                  as.factor(race) + 
+                  as.factor(exercise) + 
+                  as.factor(marital) + 
+                  as.factor(tumor) +
+                  age + 
+                  I(age^2) + 
+                  smokeyrs + 
+                  I(smokeyrs^2),
+                data=df.q3) #fit model
+  tab1$meanY <- predict(glm.fit.q3b, tab1, type = "response") #predict death
+  results<-with(tab1, tapply(meanY, list(interv), mean))# get mean of predictions
+  return(results) #store results in matrix and repeat
+})
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+mean_df<-as.data.frame(mean_matrix)
+
+ceff<-mean_df[3,]-mean_df[2,]
+
+tceff<-t(ceff)
+mean(tceff)
+hist(tceff)
+t.test(tceff)
+```
+
+
+

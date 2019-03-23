@@ -1,0 +1,267 @@
+---
+title: "Untitled"
+author: "Anthony O'Brien"
+date: "February 8, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning=FALSE, include=FALSE}
+# Load packages to read in SAS file and perform analysis
+library(sas7bdat)
+library(dplyr)
+```
+
+```{r}
+# Read in SAS file
+df <- read.sas7bdat("C:/Users/Me/Dropbox/4. HSPH MPH 45.5 QM/6. Spring 1/EPI289/HW/HW1//nhefs.sas7bdat")
+```
+
+## EPI Homework 2.1
+
+```{r}
+# Propensity score
+ps<- glm(qsmk ~ 
+           sex + 
+           race + 
+           poly(age, 2, raw = TRUE) + 
+           education +
+           exercise,
+         data = df, 
+         family = 'binomial')
+
+# predict PS values and assign to variables in dataset
+df$ps_qsmk <- predict(ps, df, 'response')
+
+# Fit model for estimate the causal effect of smoking cessation on death
+fit<- glm(death~
+            qsmk+
+            ps_qsmk,
+          data=df,
+          family='binomial')
+
+# summary of model
+summary(fit)
+
+# coefficients of model
+exp(confint(fit))
+```
+
+Q2
+```{r}
+# part a
+# Analysis restricted 
+# with non-missing values in the following covariates
+df$id <- 1:nrow(df)
+df.original <- df
+
+# select relevant variables
+df<- df[c("id", "qsmk", "sex", "race", "age","death")]
+
+# restricting data for non-missing
+df <- as.data.frame(na.omit(df))
+
+# cagtegorize age
+df<-df %>% mutate(age_cat= ifelse(age>=50,0,1))
+
+# create 16 covariate patterns
+df<-df %>% 
+  mutate(groups=0) %>% # this is a sanity check if 0 then there is an error
+  mutate(p=0,
+         p= ifelse(sex==0 & race ==0 & age_cat==0,"1",p),
+         p= ifelse(sex==0 & race ==0 & age_cat==1,"2",p),
+         p= ifelse(sex==0 & race ==1 & age_cat==0,"3",p),
+         p= ifelse(sex==1 & race ==0 & age_cat==0,"4",p),
+         p= ifelse(sex==0 & race ==1 & age_cat==1,"5",p),
+         p= ifelse(sex==1 & race ==0 & age_cat==1,"6",p),
+         p= ifelse(sex==1 & race ==1 & age_cat==0,"7",p),
+         p= ifelse(sex==1 & race ==1 & age_cat==1,"8",p)) 
+
+# Proportion of individuals in each group of confounders
+prop.table(table(df$p))
+
+# Probability of death in each group for treated (death-1)
+df_treat<-df %>% filter(qsmk==1) #-create a treatment only df
+table(df_treat$death, df_treat$p)
+prop.table(table(df_treat$death, df_treat$p),2)
+
+# Probability of death in each group for untreated (death-1)
+df_untreat<-df %>% filter(qsmk==0) #-create a non-treatment only df
+table(df_untreat$death, df_untreat$p)
+prop.table(table(df_untreat$death, df_untreat$p),2)
+
+```
+
+
+
+```{r}
+#_____________________________________________________________________________
+# part b Nonparametric standardization (with models)
+# create table 1 with indicator
+df$interv <- rep(-1, nrow(df))
+
+#create table 2 for untreated and label outcome as NA
+df.untreat <- df
+df.untreat$interv <- 0
+df.untreat$qsmk<- 0
+df.untreat$death <- rep(NA, nrow(df.untreat))
+
+#create table 3 for untreated and label outcome as NA
+df.treat <- df
+df.treat$interv <- 1
+df.treat$qsmk<- 1
+df.treat$death <- rep(NA, nrow(df.untreat))
+
+# create a dataset with 3 copies of each subject
+q2b<- as.data.frame(rbind(df, df.untreat, df.treat))
+
+# estimate non-parametric model
+fit2b<-glm(death~qsmk+sex+race+age_cat,data=q2b,family=binomial(link="logit"))
+summary(fit2b)
+
+# predict outcome Y in tables 2 and 3 for outcome
+q2b$meanY <- predict(fit2b, q2b, type = "response")
+
+# get the means of the tables
+with(q2b, tapply(meanY, list(interv), mean))
+
+library(blm)
+(0.1997409-0.1932634)
+```
+
+```{r}
+#_____________________________________________________________________________
+#part c
+# parametric standardization (with models)
+q2c<-q2b
+# estimate non-parametric model
+fit2c<-glm(death~
+             qsmk+
+             sex+
+             race+
+             poly(age, 2, raw=TRUE),
+           data=q2c,
+           family=binomial(link="logit"))
+summary(fit2c)
+
+# predict outcome Y in tables 2 and 3 for outcome
+q2c$meanY <- predict(fit2c, q2c, type = "response")
+
+# get the means of the tables
+with(q2c, tapply(meanY, list(interv), mean))
+
+#library(blm)
+expit(0.1906977-0.1971630)
+#_____________
+
+```
+
+Q3
+```{r}
+# select relevant variables
+df3<- df.original[c("id", "qsmk", "sex", "race","age","education",
+          "exercise",
+          "death")]
+
+# create table 1 with indicator
+df3$interv <- rep(-1, nrow(df3))
+
+#create table 2 for untreated and label outcome as NA
+df3.untreat <- df3
+df3.untreat$interv <- 0
+df3.untreat$qsmk<- 0
+df3.untreat$death <- rep(NA, nrow(df3.untreat))
+
+#create table 3 for untreated and label outcome as NA
+df3.treat <- df3
+df3.treat$interv <- 1
+df3.treat$qsmk<- 1
+df3.treat$death <- rep(NA, nrow(df3.untreat))
+
+# create a dataset with 3 copies of each subject
+q3<- as.data.frame(rbind(df3, df3.untreat, df3.treat))
+
+# estimate non-parametric model
+fit3<-glm(death~
+            qsmk+
+            sex+
+            race+ 
+            poly(age, 2, raw = TRUE) + 
+            education +
+            exercise,
+          data=q3,
+          family=binomial(link="logit"))
+summary(fit3)
+
+# predict outcome Y in tables 2 and 3 for outcome
+q3$meanY <- predict(fit3, q3, type = "response")
+
+# get the means of the tables
+with(q3, tapply(meanY, list(interv), mean))
+
+
+
+
+```
+
+```{r}
+B <- 10000 # 10,000 bootstraps
+N <- 1629 #replicate the size of a table
+start.time <- Sys.time() 
+mean_list<-replicate(B,{
+  tab2<-sample_n(df3.untreat,N,replace=TRUE) #create table 2
+  tab3<-sample_n(df3.treat,N,replace=TRUE) #create table 3
+  tab1<-as.data.frame(rbind(df3, tab2, tab3)) #fuse tables
+  fit3.2<-glm(death~
+            qsmk+
+            sex+
+            race+ 
+            poly(age, 2, raw = TRUE) + 
+            education +
+            exercise,
+          data=tab1,
+          family=binomial(link="logit")) #fit model
+  tab1$meanY <- predict(fit3.2, tab1, type = "response") #predict death
+  results<-with(tab1, tapply(meanY, list(interv), mean))# get mean of predictions
+  return(results) #store results in matrix and repeat
+})
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+mean_df<-as.data.frame(mean_list)
+ceff<-mean_df[3,]-mean_df[2,]
+tceff<-t(ceff)
+mean(tceff)
+hist(tceff)
+t.test(tceff)
+```
+
+Time difference of 3.639081 mins
+
+
+
+
+
+
+```{r}
+# groups= ifelse(qsmk==0 & sex==0 & race ==0 & age_cat==0,"1",groups),
+#          groups= ifelse(qsmk==1 & sex==0 & race ==0 & age_cat==0,"2",groups),
+#          groups= ifelse(qsmk==0 & sex==1 & race ==0 & age_cat==0,"3",groups),
+#          groups= ifelse(qsmk==0 & sex==0 & race ==1 & age_cat==0,"4",groups),
+#          groups= ifelse(qsmk==0 & sex==0 & race ==0 & age_cat==1,"5",groups),
+#          groups= ifelse(qsmk==1 & sex==1 & race ==0 & age_cat==0,"6",groups),
+#          groups= ifelse(qsmk==0 & sex==1 & race ==1 & age_cat==0,"7",groups),
+#          groups= ifelse(qsmk==0 & sex==0 & race ==1 & age_cat==1,"8",groups),
+#          groups= ifelse(qsmk==1 & sex==1 & race ==1 & age_cat==0,"9",groups),
+#          groups= ifelse(qsmk==0 & sex==1 & race ==1 & age_cat==1,"10",groups),
+#          groups= ifelse(qsmk==1 & sex==0 & race ==1 & age_cat==0,"11",groups),
+#          groups= ifelse(qsmk==0 & sex==1 & race ==0 & age_cat==1,"12",groups),
+#          groups= ifelse(qsmk==1 & sex==1 & race ==0 & age_cat==1,"13",groups),
+#          groups= ifelse(qsmk==1 & sex==0 & race ==1 & age_cat==1,"14",groups),
+#          groups= ifelse(qsmk==1 & sex==0 & race ==0 & age_cat==1,"15",groups),
+#          groups= ifelse(qsmk==1 & sex==1 & race ==1 & age_cat==1,"16",groups),
+```
+

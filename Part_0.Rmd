@@ -1,0 +1,256 @@
+---
+title: "EPI 289 Homework 0"
+author: "Anthony T. O'Brien V."
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+**1. Read in the nhefs.sas7bdat file from the EPI 289 course website.**
+
+```{r, warning=FALSE, include=FALSE}
+# Load packages to read in SAS file and perform analysis
+library(sas7bdat)
+library(dplyr)
+library(plotrix)
+library(ggplot2)
+```
+
+```{r}
+# Read in SAS file
+df <- read.sas7bdat("C:/Users/Me/Dropbox/4. HSPH MPH 45.5 QM/6. Spring 1/EPI289/HW/nhefs.sas7bdat")
+```
+
+Show your log to demonstrate that the file was successfully assigned.
+
+![](C:/Users/Me/Dropbox/4. HSPH MPH 45.5 QM/6. Spring 1/EPI289/HW/answers/jpeg_proof_hw0.jpg)
+
+**2. Sort the data set by the variable seqn. Print out the ID number,** 
+**age, and sex for the first 10 observations.**  
+
+```{r}
+# Sort by seqn. Select seqn, sex & age. Print top 10.
+df %>% 
+  arrange((seqn)) %>%
+  select(seqn, sex, age) %>% 
+  head(10)
+```
+
+**3.Find the mean systolic blood pressure and standard error for men and for women.**
+
+```{r}
+# Group by sex and print mean and standard error excluding any NAs.
+# 0-male, 1-female
+df %>% 
+  group_by(sex) %>%
+  summarize(mean_size= mean(sbp, na.rm=TRUE), 
+            standard_error= std.error(sbp, na.rm=TRUE))
+```
+
+**4. What is the mean, 25th percentile, 50th percentile, 75th percentile,** 
+**and interquartile range of weight in 1971 (in kilograms).**
+
+```{r}
+# Print mean, 25th percentile, 50th percentile, 75th percentile and IQR for 
+# 1971 weight in Kg
+df %>% 
+  select(wt71) %>%
+  summarize(IQR=IQR(wt71))
+  
+df %>% 
+  select(wt71) %>%
+  summary()
+```
+
+**5a.In your data step, create quartiles for weight in 1971 as based on the**
+**cut-points from Question (4). Give a tabulation of your results.**
+
+```{r}
+# Create quartiles based on question 4 results and tabulate results
+df %>% mutate(quartiles= case_when(wt71 <= 59.65 ~ "1",
+                                   wt71 <= 69.40 ~ "2",
+                                   wt71 <= 79.95 ~ "3",
+                                   wt71 <= 169.19 ~ "4")) %>% 
+  count(Quartiles=quartiles)
+
+# Save quartiles in dataframe
+df<-df %>% mutate(quartiles= case_when(wt71 <= 59.65 ~ "1",
+                                   wt71 <= 69.40 ~ "2",
+                                   wt71 <= 79.95 ~ "3",
+                                   wt71 <= 169.19 ~ "4"))
+```
+
+**5b. Create quartiles for weight in 1971 using PROC RANK.**
+**Give a tabulation of your results. Do your results match those of Question (5a)?**
+**Why or why not?**
+
+```{r}
+# There is no PROC RANK funciton in R so I simulated the funciton based
+# on the referenced link below.
+
+df$rank <- rank(df$wt71)
+percent.rank<-function(x) trunc(rank(x)/length(x)*100)
+df<-within(df,pr<-percent.rank(rank))
+df$bins <- cut(df$pr, breaks=c(-Inf,25,50,75,+Inf), labels=c("1","2","3","4"))
+
+df %>% count(Quartiles=bins)
+
+```
+
+If we look closely the percentile rank function is truncating (rounding) 
+downwards. That is a value of 0.06 will be a percentile rank of 0. Therefore it
+is possible that values on the limits between percentile ranks, eg. 59.6 will be
+rounded to 59 rather than 60.
+
+On the other hand if we remove this condition we get results which are similar
+to the first tabulation using the quartiles:
+
+Quartiles    n
+1	          406			
+2	          408			
+3	          408			
+4	          407	
+
+However we still suffer from "rounding" off differences, but to a lesser extent.
+
+That said please note that since R doesn't have a PROC RANK function I 
+attempted to simualte it as described here:
+
+(PROC_RANK_IN_R)[https://stackoverflow.com/questions/33253583/grouped-ranking-in-r]
+
+**6. 	Using PROC REG, fit a univariate linear regression model for the** 
+**outcome weight in 1971 with number of cigarettes smoked per day in 1971**
+**as the predictor. Report the parameter estimate for cigarettes smoked per day.** 
+
+```{r}
+# Fit linear model for weight in 1971 and cigarettes smoked per day in 1971
+fit_q6 <- df %>%  
+  lm(wt71 ~ smokeintensity, 
+     data=.)
+
+summary(fit_q6)
+```
+
+The parameter estimate for cigraettes smoked per day is: 0.11275
+
+**7. Create a cross-tabulation between sex and race.**
+
+```{r}
+# Cross tabulation between sex and race
+# Sex: 0-male, 1-female; Race: 0-white, 1-black or other
+table(df$sex, 
+      df$race)
+```
+
+**8. Using PROC REG, fit a multivariate linear regression model for the outcome** 
+**weight in  1971 with age, sex, and race as the predictors. From this model,** 
+**print the observed and predicted values of weight in 1971 for the first 5**
+**observations. What is the predicted value of weight in 1971 for an individual** 
+**of age 40, female, and of Black or other race/ethnicity?**
+
+```{r}
+# Fit multilinear model for y=weight in 1971 & x= age, sex, and race
+fit_q8 <- df %>%  
+  lm(wt71 ~ 
+       age + 
+       sex + 
+       race, 
+     data=.)
+
+summary(fit_q8)
+
+# Print the observed and predicted values of weight in 1971 for first 5 rows
+df2<-data.frame(Id= df$seqn, 
+                Age= df$age, 
+                Sex= df$sex, 
+                Race= df$race, 
+                Predicted_Weight=fitted(fit_q8))
+df2 %>% head(5)
+
+# Predicted value of weight in 1971 for an individual of age 40, female and 
+# black or other race/ethnicity
+
+Prediction=77.098741-(0.006316*40)-(12.748300*1)+(5.502288*1)
+Prediction
+```
+
+**9. Fit the same model from Question (8) using PROC GLM and compare your** 
+**results. Use the CLASS statement to adjust for any categorical variables.**
+
+```{r}
+# Repeat question 9 using GLM
+fit_q9 <- df %>%  
+  glm(wt71 ~ 
+        age + 
+        as.factor(sex) + 
+        as.factor(race),
+      data=.,
+      gaussian(link = "identity"))
+
+print("GLM Results")
+summary(fit_q9)
+print("Linear Model Results")
+summary(fit_q8)
+```
+
+The results do not differ between question 8 and 9.
+
+[Difference_between_lm_and_glm](https://www.reddit.com/r/rstats/comments/2izyw1/difference_between_glm_and_lm_lmyxz_and_glmyxz/)
+
+"```lm``` fits models of the form: ```Y = XB + e``` where e~Normal( 0, s2 ).
+```glm``` fits models of the form: ```g(Y) = XB + e```, where the function g() 
+and the sampling distribution of e need to be specified."
+
+**10. Using PROC LOGISTIC, fit a multivariate logistic regression model for** 
+**the outcome asthma diagnosis in 1971 with age, sex, race, and usual physical** 
+**activity status (var active) as the predictors. Print the predicted**
+**probabilities of asthma diagnosis for the individuals with the** 
+**first 5 ID numbers.**
+
+```{r}
+# Multivariate logistic regression of asthma dx in 1971 ~ age,sex,rave and 
+# usual physical activity 
+fit_q10 <- df %>%  
+  glm(asthma ~ 
+        age + 
+        as.factor(sex) + 
+        as.factor(race)+
+        active,
+      data=., 
+      binomial(link = "logit"))
+
+summary(fit_q10)
+
+# Print the observed and predicted values of weight in 1971 for first 5 rows
+df3<- data.frame(Id= df$seqn, 
+                Age= df$age, 
+                Sex= df$sex, 
+                Race= df$race,
+                Activity= df$active,
+                Predicted_asthma_probaility=fitted(fit_q10))
+df3 %>% head(5)
+```
+
+**11. (Optional) Create a graph that plots systolic blood pressure on the**
+**Y-axis and usual physical activity status (var active) on the X-axis.**
+
+```{r, warning=FALSE}
+# Define a color scheme for active groups 
+# 0-very active 1-moderate activity 2-inactive
+df<-df %>% mutate(color_scheme= case_when(active %in% 0 ~ "blue",
+                                      active %in% 1 ~ "red",
+                                      active %in% 2 ~ "green"))
+
+df %>% 
+  ggplot() +
+  geom_boxplot(aes(as.factor(active),sbp, fill=color_scheme), alpha=0.5) +
+  theme_bw()+
+  theme(legend.position="none")+
+  labs(subtitle="Boxplot of SBP vs Physical Activity",
+      x="Physical activity", 
+       y="Systolic blood pressure") 
+  
+```
+
